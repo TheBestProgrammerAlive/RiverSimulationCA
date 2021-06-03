@@ -4,19 +4,23 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
 using System.Windows.Forms;
 using System.IO;
 using Newtonsoft.Json;
+using System.Threading;
 
 namespace RiverSimulationCA
 {
     public partial class MainForm : Form
     {
+        private int _stepCounter;
         private Pen _pen;
         private State _stateSelected;
         private Graphics _graphics;
         private Cell[,] _automata;
+        private Cell[,] _temporaryAutomata;
         private int _cellWidthAndHeight;
         private Dictionary<State, SolidBrush> _dictionary;
         public MainForm()
@@ -24,26 +28,24 @@ namespace RiverSimulationCA
             InitializeComponent();
             InitializeVariables();
             CreateCells(_automata,State.Air);
+            CreateCells(_temporaryAutomata,State.Air);
+            
            
         }
-        private void panelAutomata_Paint(object sender, PaintEventArgs e)
-        {
-      
-            FillAllCells(_automata,e.Graphics);
-            DrawAllCells(_automata,e.Graphics);
-        }
+       
 
         #region helpful methods
 
         private void InitializeVariables()
         {
+            _stepCounter = 0;
+            _cellWidthAndHeight = 15;
             _pen = new Pen(Color.Black);
             _stateSelected = State.Earth;
             _dictionary = new Dictionary<State, SolidBrush>();
             AddToDictionary();
-            _cellWidthAndHeight = 15;
             _automata = new Cell[panelAutomata.Size.Height/_cellWidthAndHeight, panelAutomata.Size.Width/_cellWidthAndHeight];
-            Debug.WriteLine($"{panelAutomata.Size.Height/_cellWidthAndHeight}  { panelAutomata.Size.Width/_cellWidthAndHeight}");
+            _temporaryAutomata = new Cell[panelAutomata.Size.Height/_cellWidthAndHeight, panelAutomata.Size.Width/_cellWidthAndHeight];
             _graphics = panelAutomata.CreateGraphics();
         }
 
@@ -75,9 +77,9 @@ namespace RiverSimulationCA
         {
         
             
-            for (int i = 0; i < automata.GetLength(0); i++)
+            for (int i = 1; i < automata.GetLength(0)-1; i++)
             {
-                for (int j = 0; j < automata.GetLength(1); j++)
+                for (int j = 1; j < automata.GetLength(1)-1; j++)
                 {
                     graphics.DrawRectangle(_pen,automata[i, j].CellShape);
                 }
@@ -86,9 +88,9 @@ namespace RiverSimulationCA
         }
         private void FillAllCells(Cell[,] automata,Graphics graphics)
         {
-            for (int i = 0; i < automata.GetLength(0); i++)
+            for (int i = 1; i < automata.GetLength(0)-1; i++)
             {
-                for (int j = 0; j < automata.GetLength(1); j++)
+                for (int j = 1; j < automata.GetLength(1)-1; j++)
                 {
                     FillCell(automata[i, j], graphics);
                  
@@ -113,15 +115,319 @@ namespace RiverSimulationCA
                 {
                     
                         _automata[i, j].CellState = tempAutomata[i, j].CellState;
-                        FillCell(_automata[i,j],panelAutomata.CreateGraphics());
+                        FillCell(_automata[i,j],_graphics);
                 }
             }
         }
+        private void Clear()
+        {
+            for (int i = 0; i < _automata.GetLength(0); i++)
+            {
+                for (int j = 0; j < _automata.GetLength(1); j++)
+                {
+                    _automata[i, j].CellState = State.Air;
+                }
+             
+              
+            }
+            FillAllCells(_automata,_graphics);
+            DrawAllCells(_automata,_graphics);
+            _stepCounter = 0;
+            labelSteps.Text = $"Krok: {_stepCounter}";
+        }
         #endregion
+        
         #region button methods
+    
+   
+        private void buttonEarth_Click(object sender, EventArgs e)
+        {
+            _stateSelected = State.Earth;
+        }
+
+        private void buttonAir_Click(object sender, EventArgs e)
+        {
+            _stateSelected = State.Air;
+        }
+
+        private void buttonWater_Click(object sender, EventArgs e)
+        {
+            _stateSelected = State.Water;
+        }
+        private void buttonStart_Click(object sender, EventArgs e)
+        {
+            
+            if (!backgroundWorker.IsBusy)
+            {
+                buttonStart.Enabled = false;
+                buttonStop.Enabled = true;
+                backgroundWorker.RunWorkerAsync();  
+            }
+
+        }
+
+        private void buttonStop_Click(object sender, EventArgs e)
+        {
+            
+            buttonStart.Enabled = true;
+            buttonStop.Enabled = false;        
+            backgroundWorker.CancelAsync();
+         
+    
+        }
+
+        private void buttonOneStep_Click(object sender, EventArgs e)
+        {
+            SimulateOneStep();
+           
+        }
+
+      
+
+        #endregion
+        
+        #region menustrip methods
+
+        private void zapiszToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (saveFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                string filePath = saveFileDialog.FileName;
+                using (StreamWriter sw = new StreamWriter(filePath))
+                {
+                    sw.Write(JsonConvert.SerializeObject(_automata));
+                
+                }
+            }
+           
+        }
+
+        private void wczytajToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (openFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                string filePath = openFileDialog.FileName;
+                Cell[,] tempAutomata;
+                using (StreamReader sr = new StreamReader(filePath))
+                {  
+                    tempAutomata = JsonConvert.DeserializeObject<Cell[,]>((sr.ReadToEnd()));
+                }
+                UpdatePanelAfterLoading(tempAutomata);
+               
+
+            }
+           
+        }  
+        private void zmieńWszystkoWPowietrzeToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            Clear();
+        }
+
+        #endregion
+
+        #region backgroundworker and simulation methods
+        private void backgroundWorker_DoWork(object sender, DoWorkEventArgs e)
+        {
+            Simulate();
+        }
+        
+        private void Simulate()
+        {
+            while (true)
+            {
+                _stepCounter++;
+                labelSteps.Text = $"Krok: {_stepCounter}";
+               Thread.Sleep(500);
+                Flood();
+                if (backgroundWorker.CancellationPending)
+                    break;
+
+
+            }
+        }
+        private void SimulateOneStep()
+        {
+          
+            _stepCounter++;
+            labelSteps.Text = $"Krok: {_stepCounter}";
+            Flood();
+        }
+
+        private void Flood()
+        {
+            //edges
+            //up
+            //  for (int i  = 0; i <  _temporaryAutomata.GetLength(1); i++)
+            //  {
+            //      
+            //  }
+            //  //down
+            //  for (int i = _temporaryAutomata.GetLength(0); i <  _temporaryAutomata.GetLength(1); i++)
+            //  {
+            //      
+            //  }
+            //  //left
+            //  for (int i = 0; i < UPPER; i++)
+            //  {
+            //      
+            //  }
+            // //right
+            // for (int i = 0; i < UPPER; i++)
+            // {
+            //     
+            // }
+
+            //inside
+            _temporaryAutomata = (Cell[,])_automata.Clone();
+            for (int j = _temporaryAutomata.GetLength(1) - 2; j >= 1; j--)
+            {
+                for (int i = _temporaryAutomata.GetLength(0) - 2; i >= 1; i--)
+                {
+                    switch (_temporaryAutomata[i, j].CellState)
+                    {
+                        case State.Air:
+                            break;
+
+                        case State.Water:
+                            CheckWaterNeighbourhood(_temporaryAutomata, i, j);
+                            break;
+                        case State.Earth:
+                            break;
+                        default:
+                            throw new Exception("wrong state specified");
+                            break;
+                    }
+                }
+            }
+        }
+
+        private void CheckWaterNeighbourhood(Cell[,] automata, int i, int j)
+        {
+            //down
+            if ( automata[i + 1, j].CellState==State.Air)
+            {
+                automata[i + 1, j].CellState = State.Water;
+                FillCell(automata[i+1,j],_graphics);
+                return;
+
+            }
+            //down-left down-right
+            //-->air
+            // if ( automata[i + 1, j - 1].CellState==State.Air)
+            // {
+            //     automata[i + 1, j - 1].CellState = State.Water;
+            //     FillCell(automata[i + 1, j - 1],_graphics);
+            //     return;
+            // }
+            //
+            // if (automata[i + 1, j + 1].CellState==State.Air)
+            // {
+            //     automata[i + 1, j + 1].CellState = State.Water;
+            //     FillCell(automata[i + 1, j + 1],_graphics);
+            //     return;
+            // }
+            //left right
+            if (automata[i, j - 1].CellState==State.Air)
+            {
+                automata[i, j - 1].CellState = State.Water;
+                FillCell(automata[i, j - 1],_graphics);
+                return;
+            }
+            if (automata[i, j + 1].CellState==State.Air)
+            {
+                automata[i, j + 1].CellState = State.Water;
+                FillCell(_automata[i, j + 1],_graphics);
+                return;
+            }
+            //all upper
+            // if (automata[i - 1, j - 1].CellState==State.Air)
+            // {
+            //     automata[i - 1, j - 1].CellState = State.Water;
+            //     FillCell(_automata[i - 1, j - 1],_graphics);
+            //     return;
+            // }
+            if (automata[i - 1, j].CellState==State.Air)
+            {
+                automata[i - 1, j].CellState = State.Water;
+                FillCell(_automata[i - 1, j],_graphics);
+                return;
+            }
+            // if (automata[i - 1, j + 1].CellState==State.Air)
+            // {
+            //     automata[i - 1, j + 1].CellState = State.Water;
+            //     FillCell(_automata[i-1,j+1],_graphics);
+            // }
+            //test
+         
+
+           
+
+        }
+
+        #endregion
+
+        #region automata events
+
+        private void panelAutomata_Paint(object sender, PaintEventArgs e)
+        {
+          
+            FillAllCells(_automata,e.Graphics);
+            DrawAllCells(_automata,e.Graphics);
+        }
         private void panelAutomata_MouseDown(object sender, MouseEventArgs e)
         {
             
+            int cellRow=e.Y / _cellWidthAndHeight;
+            int cellColumn=e.X / _cellWidthAndHeight;
+            try
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    _automata[cellRow,cellColumn].CellState=_stateSelected;
+                    FillCell(_automata[cellRow,cellColumn], panelAutomata.CreateGraphics());
+                }
+                if (e.Button == MouseButtons.Middle)
+                {
+                    for (int i = cellRow; i < _automata.GetLength(0); i++)
+                    {
+                        _automata[i,cellColumn].CellState=_stateSelected;
+                        FillCell(_automata[i,cellColumn], panelAutomata.CreateGraphics());
+                    }
+                }
+
+                if (e.Button == MouseButtons.Right)
+                {
+                    if (_stateSelected != State.Earth)
+                    {
+                        for (int i = cellRow; i < _automata.GetLength(0); i++)
+                        {
+                            if ( _automata[i,cellColumn].CellState==State.Earth)
+                            {
+                                break;
+                            }
+                            _automata[i,cellColumn].CellState=_stateSelected;
+                            FillCell(_automata[i,cellColumn], panelAutomata.CreateGraphics());
+                        }
+                    }
+                    else
+                    {
+                        for (int i = cellRow; i < _automata.GetLength(0); i++)
+                        {
+                            _automata[i,cellColumn].CellState=_stateSelected;
+                            FillCell(_automata[i,cellColumn], panelAutomata.CreateGraphics());
+                        }  
+                    }
+                  
+                }
+            }
+            catch (Exception _)
+            {
+                // ignored
+            }
+            
+        }
+        private void panelAutomata_MouseMove(object sender, MouseEventArgs e)
+        {
             int cellRow=e.Y / _cellWidthAndHeight;
             int cellColumn=e.X / _cellWidthAndHeight;
             try
@@ -169,68 +475,14 @@ namespace RiverSimulationCA
             {
                 // ignored
             }
-            
         }
-
-        private void buttonEarth_Click(object sender, EventArgs e)
-        {
-            _stateSelected = State.Earth;
-        }
-
-        private void buttonAir_Click(object sender, EventArgs e)
-        {
-            _stateSelected = State.Air;
-        }
-
-        private void buttonWater_Click(object sender, EventArgs e)
-        {
-            _stateSelected = State.Water;
-        }
+        #endregion
         
 
-        #endregion
+       
+  
 
-        #region dialogs methods
-
-        private void zapiszToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            if (saveFileDialog.ShowDialog() == DialogResult.OK)
-            {
-                string filePath = saveFileDialog.FileName;
-                using (StreamWriter sw = new StreamWriter(filePath))
-                {
-                    sw.Write(JsonConvert.SerializeObject(_automata));
-                
-                }
-            }
-           
-        }
-
-        private void wczytajToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            Cell[,] tempAutomata = new Cell[_automata.GetLength(0), _automata.GetLength(1)];
-            //nie działa, dostaje sie do messageboxów ale potem nie da sie nic kliknąć i sie nie wczytuje
-            if (openFileDialog.ShowDialog() == DialogResult.OK)
-            {
-                string filePath = openFileDialog.FileName;
-                using (StreamReader sr = new StreamReader(filePath))
-                {  
-                    tempAutomata = JsonConvert.DeserializeObject<Cell[,]>((sr.ReadToEnd()));
-                }
-                UpdatePanelAfterLoading(tempAutomata);
-               
-
-            }
-           
-        }
-
-        #endregion
-      
-
-        private void button1_Click(object sender, EventArgs e)
-        {
-            MessageBox.Show($"{_automata[0, 0].CellState}");
-        }
+   
     }
     
 }
