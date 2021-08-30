@@ -1,34 +1,11 @@
-﻿using System;
-using System.Drawing;
+﻿using System.Drawing;
 
 namespace RiverSimulationCA
 {
     public class CellularColumn
     {
-        static public float MaximumWaterLevel = 500;
-        public float CurrentWaterLevel { get; set; }
-
-        public float EarthLevel { get; set; }
-
-        public float CurrentLevel 
-        { 
-            get
-            {
-                currentLevel = EarthLevel + CurrentWaterLevel;
-                return currentLevel;
-            } 
-            private set
-            {
-                currentLevel = EarthLevel + CurrentWaterLevel;
-                
-            }
-        } 
-
-        public State CellState { get; set; }
-        public Rectangle CellShape { get; private set; }
-        private float currentLevel;
-        public Rectangle EarthRect { get; set; }
-        public Rectangle WaterRect { get; set; }
+        public static float MaximumWaterLevel;
+        private float _currentLevel;
 
         public CellularColumn(Rectangle rect, State state)
         {
@@ -37,6 +14,22 @@ namespace RiverSimulationCA
             EarthLevel = 250;
             CurrentWaterLevel = 0;
         }
-        
+        public float CurrentWaterLevel { get; set; }
+
+        public float EarthLevel { get; set; }
+
+        public float CurrentLevel
+        { 
+            get
+            {
+                _currentLevel = EarthLevel + CurrentWaterLevel;
+                return _currentLevel;
+            }
+        }
+
+        public State CellState { get; set; }
+        public Rectangle CellShape { get; }
+        public Rectangle EarthRect { get; set; }
+        public Rectangle WaterRect { get; set; }
     }
 }

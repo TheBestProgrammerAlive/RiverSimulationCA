@@ -1,30 +1,27 @@
 ﻿using System;
-using Newtonsoft.Json.Serialization;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Linq;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
-using System.Windows.Forms;
 using System.IO;
-using Newtonsoft.Json;
 using System.Threading;
-using System.Timers;
+using System.Windows.Forms;
+using Newtonsoft.Json;
 
 namespace RiverSimulationCA
 {
     public partial class MainForm : Form
     {
+        private CellularColumn[] _automata;
         private int _columnWidth;
-        private decimal _velocityRate;
-        private int _stepCounter;
+        private Dictionary<State, SolidBrush> _dictionary;
+        private Graphics _graphics;
         private Pen _pen;
         private State _stateSelected;
-        private Graphics _graphics;
-        private CellularColumn[] _automata;
+        private int _stepCounter;
         private CellularColumn[] _temporaryAutomata;
-        private Dictionary<State, SolidBrush> _dictionary;
+        private decimal _velocityRate;
+        private float _maxLevel;
 
         public MainForm()
         {
@@ -40,6 +37,7 @@ namespace RiverSimulationCA
         private void InitializeVariables()
         {
             CellularColumn.MaximumWaterLevel = panelAutomata.Size.Height;
+            _maxLevel = panelAutomata.Size.Height;
             _columnWidth = 20;
             _velocityRate = numericUpDownVelocitySetter.Value;
             _stepCounter = 0;
@@ -61,16 +59,19 @@ namespace RiverSimulationCA
 
         private void CreateCells(CellularColumn[] automata, State state)
         {
-            int x = 0;
+            var x = 0;
+
             automata[0] = new CellularColumn(new Rectangle(new Point(x, 0),
                 new Size(_columnWidth, panelAutomata.Size.Height)), state);
+            automata[0].CurrentWaterLevel = _maxLevel;
+            automata[0].EarthLevel = 0;
             automata[0].EarthRect = new Rectangle(new Point(x, panelAutomata.Size.Height),
                 new Size(_columnWidth, 0));
             automata[0].WaterRect = new Rectangle(new Point(x, 0),
                 new Size(_columnWidth, panelAutomata.Size.Height));
             x += _columnWidth;
 
-            for (int i = 1; i < automata.Length - 1; i++)
+            for (var i = 1; i < automata.Length - 1; i++)
             {
                 automata[i] = new CellularColumn(new Rectangle(new Point(x, 0),
                     new Size(_columnWidth, panelAutomata.Size.Height)), state);
@@ -84,8 +85,10 @@ namespace RiverSimulationCA
                 x += _columnWidth;
             }
 
+
             automata[automata.Length - 1] = new CellularColumn(new Rectangle(new Point(x, 0),
                 new Size(_columnWidth, panelAutomata.Size.Height)), state);
+            automata[automata.Length - 1].EarthLevel = _maxLevel;
             automata[automata.Length - 1].EarthRect = new Rectangle(new Point(x, 0),
                 new Size(_columnWidth, panelAutomata.Size.Height));
             automata[automata.Length - 1].WaterRect = new Rectangle(new Point(x, 0),
@@ -94,7 +97,7 @@ namespace RiverSimulationCA
 
         private void DrawAllCells(CellularColumn[] automata, Graphics graphics)
         {
-            for (int i = 1; i < automata.Length - 1; i++)
+            for (var i = 1; i < automata.Length - 1; i++)
             {
                 graphics.DrawRectangle(_pen, automata[i].CellShape);
                 graphics.DrawRectangle(_pen, automata[i].WaterRect);
@@ -104,10 +107,7 @@ namespace RiverSimulationCA
 
         private void FillAllCells(CellularColumn[] automata, Graphics graphics)
         {
-            for (int i = 1; i < automata.Length - 1; i++)
-            {
-                FillCell(automata[i], graphics);
-            }
+            for (var i = 1; i < automata.Length - 1; i++) FillCell(automata[i], graphics);
         }
 
         private void FillCell(CellularColumn cell, Graphics graphics)
@@ -122,20 +122,21 @@ namespace RiverSimulationCA
 
         private void UpdatePanelAfterLoading(CellularColumn[] tempAutomata)
         {
-            panelAutomata.CreateGraphics().Clear(Color.Azure);
-            for (int i = 0; i < tempAutomata.Length; i++)
+            panelAutomata.CreateGraphics().Clear(Color.FromArgb(153,180,209));
+            for (var i = 1; i < tempAutomata.Length - 1; i++)
             {
                 _automata[i].CellState = tempAutomata[i].CellState;
+                _automata[i].CurrentWaterLevel = tempAutomata[i].CurrentWaterLevel;
+                _automata[i].WaterRect = tempAutomata[i].WaterRect;
+                _automata[i].EarthLevel = tempAutomata[i].EarthLevel;
+                _automata[i].EarthRect = tempAutomata[i].EarthRect;
                 FillCell(_automata[i], _graphics);
             }
         }
 
-        private void Clear()
+        private void ClearAndResetCounter()
         {
-            for (int i = 0; i < _automata.Length; i++)
-            {
-                _automata[i].CellState = State.Air;
-            }
+            for (var i = 0; i < _automata.Length; i++) _automata[i].CellState = State.Air;
 
             FillAllCells(_automata, _graphics);
             DrawAllCells(_automata, _graphics);
@@ -157,76 +158,101 @@ namespace RiverSimulationCA
                 new Size(_columnWidth, (int) cell.CurrentWaterLevel));
         }
 
-       
+
         private float CalculateYForFunction(int x, string functionName)
         {
-            float maxY = CellularColumn.MaximumWaterLevel;
-            int maxX = _automata.Length;
+            var maxY = CellularColumn.MaximumWaterLevel;
+            var maxX = _automata.Length;
             switch (functionName)
             {
                 case "linear":
-                    return maxY - (maxY * x) / (maxX);
+                    return maxY - maxY * x / maxX;
+                case "linear reversed":
+                    return maxY -  maxY * (maxX - x) / maxX;
                 case "parabola":
-                    return (maxY -maxY * (float)Math.Pow(x,2)) / (maxX);
+                    return  maxY - (maxY/(x));
                 case "sinus":
-                    return 1;
+                    return maxY - 100*(float)Math.Sin(x)-200;
                 default:
                     throw new Exception("Podano złą nazwę funckji");
             }
-            
         }
+
         private void buttonDrawLinear_Click(object sender, EventArgs e)
         {
-            for (int i = 1; i < _automata.Length - 1; i++)
-            {
-                UpdateCellEarthState(_automata[i], _graphics,CalculateYForFunction(i,"linear")
-                    );
-            }
-
+            for (var i = 1; i < _automata.Length - 1; i++)
+                UpdateCellEarthState(_automata[i], _graphics,
+                    CalculateYForFunction(i, "linear"));
+            ClearAndResetCounter();
             FillAllCells(_automata, _graphics);
         }
 
         private void buttonParabola_Click(object sender, EventArgs e)
-        {
-            for (int i = 1; i < _automata.Length - 1; i++)
+        { 
+            bool overHalf = false;
+            int j = 2;
+            for (var i = 1; i < _automata.Length - 1; i++)
             {
-                UpdateCellEarthState(_automata[i], _graphics,CalculateYForFunction(i,"parabola")
+                if (j==1)
+                {
+                    j++;
+                }
+               
+                UpdateCellEarthState(_automata[i], _graphics, CalculateYForFunction(j, "parabola")
                 );
-            }
+                if (j>=(_automata.Length) / 2)
+                {
+                    overHalf = true;
+                }
 
+                if (overHalf)
+                {
+                    j--;
+                }
+                else
+                {
+                    j++;
+                }
+              
+            }
+            ClearAndResetCounter();
             FillAllCells(_automata, _graphics);
         }
-
         private void buttonSin_Click(object sender, EventArgs e)
         {
-            for (int i = 1; i < _automata.Length - 1; i++)
-            {
-                UpdateCellEarthState(_automata[i], _graphics,CalculateYForFunction(i,"sinus")
+            for (var i = 1; i < _automata.Length - 1; i++)
+                UpdateCellEarthState(_automata[i], _graphics, CalculateYForFunction(i, "sinus")
                 );
-            }
-
+            ClearAndResetCounter();
             FillAllCells(_automata, _graphics);
         }
+        private void buttonDrawLinearReversed_Click(object sender, EventArgs e)
+        {
+            for (var i = 1; i < _automata.Length - 1; i++)
+                UpdateCellEarthState(_automata[i], _graphics, CalculateYForFunction(i, "linear reversed")
+                );
+            ClearAndResetCounter();
+            FillAllCells(_automata, _graphics);
+        }
+
         private void buttonStart_Click(object sender, EventArgs e)
         {
-            if (!backgroundWorker.IsBusy)
-            {
+            
                 numericUpDownVelocitySetter.Enabled = false;
-                
                 buttonStart.Enabled = false;
                 buttonStop.Enabled = true;
                 buttonOneStep.Enabled = false;
                 backgroundWorker.RunWorkerAsync();
-            }
+            
         }
 
         private void buttonStop_Click(object sender, EventArgs e)
         {
             numericUpDownVelocitySetter.Enabled = true;
-            buttonOneStep.Enabled = true;
-            buttonStart.Enabled = true;
-            buttonStop.Enabled = false;
-            backgroundWorker.CancelAsync();
+                buttonOneStep.Enabled = true;
+                buttonStart.Enabled = true;
+                buttonStop.Enabled = false;
+                backgroundWorker.CancelAsync();
         }
 
         private void buttonOneStep_Click(object sender, EventArgs e)
@@ -234,40 +260,42 @@ namespace RiverSimulationCA
             SimulateOneStep();
         }
 
+        private void SimulateOneStep()
+        {
+            _stepCounter++;
+            labelSteps.Text = $"Krok: {_stepCounter}";
+            Flood();
+        }
+        
         #endregion
 
         #region menustrip methods
 
-        private void zapiszToolStripMenuItem_Click(object sender, EventArgs e)
+        private void saveToolStripMenuItem_Click(object sender, EventArgs e)
         {
             if (saveFileDialog.ShowDialog() == DialogResult.OK)
             {
-                string filePath = saveFileDialog.FileName;
-                using (StreamWriter sw = new StreamWriter(filePath))
+                var filePath = saveFileDialog.FileName;
+                using (var sw = new StreamWriter(filePath))
                 {
                     sw.Write(JsonConvert.SerializeObject(_automata));
                 }
             }
         }
 
-        private void wczytajToolStripMenuItem_Click(object sender, EventArgs e)
+        private void loadToolStripMenuItem_Click(object sender, EventArgs e)
         {
             if (openFileDialog.ShowDialog() == DialogResult.OK)
             {
-                string filePath = openFileDialog.FileName;
+                var filePath = openFileDialog.FileName;
                 CellularColumn[] tempAutomata;
-                using (StreamReader sr = new StreamReader(filePath))
+                using (var sr = new StreamReader(filePath))
                 {
-                    tempAutomata = JsonConvert.DeserializeObject<CellularColumn[]>((sr.ReadToEnd()));
+                    tempAutomata = JsonConvert.DeserializeObject<CellularColumn[]>(sr.ReadToEnd());
                 }
 
                 UpdatePanelAfterLoading(tempAutomata);
             }
-        }
-
-        private void zmieńWszystkoWPowietrzeToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            Clear();
         }
 
         #endregion
@@ -284,7 +312,6 @@ namespace RiverSimulationCA
             while (true)
             {
                 _stepCounter++;
-                Thread.Sleep(500);
                 labelSteps.Text = $"Krok: {_stepCounter}";
                 Flood();
                 if (backgroundWorker.CancellationPending)
@@ -292,45 +319,82 @@ namespace RiverSimulationCA
             }
         }
 
-        private void SimulateOneStep()
+        private void GiveWater( CellularColumn from, CellularColumn to)
         {
-            _stepCounter++;
-            labelSteps.Text = $"Krok: {_stepCounter}";
-            Flood();
-        }
-        private void UpdateCellWaterLevelState(CellularColumn cell, Graphics graphics, float waterLevel)
-        {
-            cell.CurrentWaterLevel = panelAutomata.Size.Height - cell.EarthLevel - waterLevel;
-            cell.WaterRect = new Rectangle(new Point(cell.CellShape.Left, (int) waterLevel),
-                new Size(_columnWidth, (int) cell.CurrentWaterLevel));
+            float waterFlown = (from.CurrentWaterLevel - to.CurrentWaterLevel) *
+                               (float) _velocityRate;
+            to.CurrentWaterLevel += waterFlown;
+            from.CurrentWaterLevel -= waterFlown;
         }
         private void Flood()
         {
             _velocityRate = numericUpDownVelocitySetter.Value;
             _temporaryAutomata = _automata;
-           
-
-            //logika
-            for (int i = 1; i < _automata.Length - 1; i++)
+            float setWaterLevel = _maxLevel;
+            _automata[0].CurrentWaterLevel = setWaterLevel;
+            for (var i = _automata.Length - 2; i > 0; i--)
             {
-                float waterLevel=0;
-                if (_automata[i].CurrentLevel < _automata[i-1].CurrentLevel && 0 < _automata[i-1].CurrentWaterLevel)
+                float waterFlown = 0;
+                if (_automata[i].CurrentLevel <  _automata[0].CurrentLevel)
                 {
-                    waterLevel = _automata[i - 1].CurrentWaterLevel - _automata[i].CurrentWaterLevel;
-                }
-                if (_automata[i].CurrentLevel < _automata[i+1].CurrentLevel && 0 < _automata[i+1].CurrentWaterLevel)
+                    if (_automata[i].CurrentLevel < _automata[i - 1].CurrentLevel )
                 {
-                    
+                   GiveWater(  _automata[i - 1],  _automata[i]);
+                    // waterFlown = (_automata[i - 1].CurrentWaterLevel - _automata[i].CurrentWaterLevel) *
+                    //              (float) _velocityRate;
+                    // _automata[i].CurrentWaterLevel += waterFlown;
+                    // _automata[i - 1].CurrentWaterLevel -= waterFlown;
+                    // if (_automata[i].CurrentWaterLevel> setWaterLevel)
+                    // {
+                    //     _automata[i].CurrentWaterLevel -= setWaterLevel - _automata[i].CurrentWaterLevel;
+                    //     _automata[i+1].CurrentWaterLevel += setWaterLevel - _automata[i].CurrentWaterLevel;
+                    // }
                 }
-
-               // UpdateCellWaterLevelState(_automata[i],_graphics,waterLevel);
-               _automata[i].CurrentWaterLevel = CellularColumn.MaximumWaterLevel - _automata[i].EarthLevel - waterLevel;
-               _automata[i].WaterRect = new Rectangle(new Point(_automata[i].CellShape.Left, (int) waterLevel),
-                   new Size(_columnWidth, (int) _automata[i].CurrentWaterLevel));
-             
+                
+                
+                //
+                // if (_automata[i].EarthLevel > _automata[i+1].CurrentLevel && _automata[i].CurrentWaterLevel > 0)
+                // {
+                //     _automata[i + 1].CurrentWaterLevel +=  _automata[i].CurrentWaterLevel-1;
+                //     _automata[i].CurrentWaterLevel = 1;
+                // }
+                //
+                //
+                // if (_automata[i].CurrentLevel < _automata[i + 1].CurrentLevel && _automata[i].CurrentLevel > _automata[i + 1].EarthLevel)
+                // {
+                //     waterFlown = (_automata[i + 1].CurrentWaterLevel - _automata[i].CurrentWaterLevel) *
+                //                  (float) _velocityRate;
+                //     _automata[i].CurrentWaterLevel += waterFlown;
+                //     _automata[i + 1].CurrentWaterLevel -= waterFlown;
+                // }
+                //
+                //
+                // if (_automata[i].CurrentLevel < _automata[i + 1].CurrentLevel &&
+                //     _automata[i].CurrentWaterLevel < _automata[i + 1].CurrentWaterLevel)
+                // {
+                //
+                //     waterFlown = (_automata[i + 1].CurrentWaterLevel - _automata[i].CurrentWaterLevel) *
+                //                  (float) _velocityRate;
+                //     _automata[i].CurrentWaterLevel += waterFlown;
+                //     _automata[i + 1].CurrentWaterLevel -= waterFlown;
+                //     if (_automata[i].CurrentWaterLevel > setWaterLevel)
+                //     {
+                //         _automata[i].CurrentWaterLevel -= setWaterLevel - _automata[i].CurrentWaterLevel;
+                //         _automata[i + 1].CurrentWaterLevel += setWaterLevel - _automata[i].CurrentWaterLevel;
+                //     }
+                // }
+                }
+                // if (_automata[0].CurrentWaterLevel < setWaterLevel)
+                //     {
+                //         _automata[0].CurrentWaterLevel += 10;
+                //     }
+                
+                
+                _automata[i].WaterRect = new Rectangle(new Point(_automata[i].CellShape.Left, (int) (_maxLevel-_automata[i].CurrentLevel)),
+                    new Size(_columnWidth, (int) _automata[i].CurrentWaterLevel));
+                FillCell(_automata[i], _graphics);
+                
             }
-            FillAllCells(_automata, _graphics);
-            DrawAllCells(_automata, _graphics);
         }
 
         #endregion
@@ -346,19 +410,16 @@ namespace RiverSimulationCA
 
         private void panelAutomata_MouseDown(object sender, MouseEventArgs e)
         {
-            int cellColumn = e.X / _columnWidth;
+            var cellColumn = e.X / _columnWidth;
             try
             {
                 if (e.Button == MouseButtons.Left)
-                {
                     //rozdziel
                     if (!(cellColumn == 0 || cellColumn == _automata.Length - 1))
                     {
                         UpdateCellEarthState(_automata[cellColumn], _graphics, e.Y);
                         FillCell(_automata[cellColumn], _graphics);
                     }
-                }
-
             }
             catch (Exception _)
             {
@@ -368,18 +429,16 @@ namespace RiverSimulationCA
 
         private void panelAutomata_MouseMove(object sender, MouseEventArgs e)
         {
-            int cellColumn = e.X / _columnWidth;
+            var cellColumn = e.X / _columnWidth;
             try
             {
                 if (e.Button == MouseButtons.Left)
-                {
                     //rozdziel
                     if (!(cellColumn == 0 || cellColumn == _automata.Length - 1))
                     {
                         UpdateCellEarthState(_automata[cellColumn], _graphics, e.Y);
                         FillCell(_automata[cellColumn], _graphics);
                     }
-                }
             }
             catch (Exception _)
             {
@@ -388,5 +447,7 @@ namespace RiverSimulationCA
         }
 
         #endregion
+
+     
     }
 }
